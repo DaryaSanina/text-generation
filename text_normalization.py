@@ -6,21 +6,35 @@ from sys import argv
 
 
 def normalize(text, language):
-    # удаление неинтересных слов из текста
+    """Normalizes a text.
+
+    Removes all non-alphanumeric characters that are not punctuation marks
+    from the text. Stems the text if it is in English or lemmatizes the text
+    if it is in Russian.
+
+    Args:
+        text: A text to normalize as a string.
+        language: The full lowercase language of the text to normalize name as a string.
+            Example: 'english'
+
+    Returns:
+        The normalized text as a string.
+    """
+    # Removing not interesting words from the text
     text = ''.join(findall(r'[\w\s.?!,;:]', text))
 
-    # разбиение текста на предложения
+    # Splitting the text into sentences
     sentences = nltk.sent_tokenize(text, language=language)
 
-    # разбиение предложений на слова
+    # Splitting the sentences into words
     words = [nltk.word_tokenize(sentence, language=language) for sentence in sentences]
 
-    # стемминг текста на английском языке
+    # Stemming the text in English
     if language == 'english':
         stemmer = nltk.stem.PorterStemmer()
         words = [[stemmer.stem(word) for word in sentence] for sentence in words]
 
-    # лемматизация текста на русском языке
+    # Lemmatizing the text in Russian
     if language == 'russian':
         morph = MorphAnalyzer()
         words = [[morph.parse(word)[0].normal_form for word in sentence] for sentence in words]
@@ -29,20 +43,20 @@ def normalize(text, language):
 
 
 if __name__ == '__main__':
-    # входные данные
+    # Source data
     source_filename = argv[1]
     dest_filename = argv[2]
 
-    # считывание текста
+    # Reading the text from the source file
     with open(source_filename, encoding='utf-8') as source:
         source_text = source.read()
 
-    # определение языка текста
+    # Detecting the language of the text
     source_text_language = pycld2.detect(source_text)[2][0][0].lower()
 
-    # нормализация текста
+    # Normalizing the text
     dest_text = '\n'.join([' '.join(sentence) for sentence in normalize(source_text, source_text_language)])
 
-    # запись обработанного текста
+    # Writing the normalized text to the destination file
     with open(dest_filename, 'w', encoding='utf-8') as dest:
         dest.write(dest_text)
