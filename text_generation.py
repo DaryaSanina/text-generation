@@ -89,6 +89,51 @@ def count_probabilities(model, laplace_smoothing=False):
     return probabilities
 
 
+def join_probabilities(prob_list, importance):
+    """Makes 1 probabilities dict from all the probabilities dicts by summing them up
+    and multiplying each of the dict value's value (the probability) by the importance
+    of this dict.
+
+    Args:
+        prob_list: A list of probabilities dicts (with keys as windows (tuples of strings)
+            and values as dicts with keys as words after the window (strings) and values
+            as the probability of the key word after the window (integers)).
+        importance: Importance of each probabilities dict as a list of integers.
+
+    Returns: A dict that represents the sum of the probabilities dicts from prob_list
+        with each of the probabilities dict value's value (the probability) multiplied
+        by the importance of this dict. The keys of the returned dict are windows
+        from the prob_list's probabilities dicts (tuples of strings) and the values
+        are dicts with keys as words after the window from all the prob_list's
+        probabilities dicts that contain that window (strings) and values as the sum
+        of the probabilities of the key word after the window from all the prob_list's
+        probabilities dicts, each of the probability is multiplied by the importance
+        of its probabilities dict.
+    """
+    probabilities = {}
+    for count in range(len(prob_list)):
+        for window in prob_list[count].keys():
+            for last_word in prob_list[count][window].keys():
+                if window in probabilities:
+                    if last_word in probabilities[window]:
+                        probabilities[window][last_word] += \
+                            prob_list[count][window][last_word] * importance[count]
+                    else:
+                        probabilities[window][last_word] = prob_list[count][window][last_word] * \
+                                                           importance[count]
+                else:
+                    probabilities[window] = {last_word: prob_list[count][window][last_word] *
+                                             importance[count]}
+
+    # Renormalization
+    probabilities_sum = sum([sum(value.values()) for value in probabilities.values()])
+    for window in probabilities.keys():
+        for last_word in probabilities[window].keys():
+            probabilities[window][last_word] /= probabilities_sum
+
+    return probabilities
+
+
 if __name__ == "__main__":
     # Source data
     parser = argparse.ArgumentParser()
@@ -96,17 +141,20 @@ if __name__ == "__main__":
     parser.add_argument('dest_filename', type=str)
     parser.add_argument('M', type=int, help="Order of the Markov model")
     parser.add_argument('N', type=int, help="Number of words to generate")
+    parser.add_argument('markov_models_importance', type=int, nargs='+',
+                        help="Importance of each source file's Markov model")
     args = parser.parse_args()
 
     source_dir = args.source_dir
     dest_filename = args.dest_filename
     M = args.M
     N = args.N
+    markov_models_importance = [int(importance) for importance in args.markov_models_importance]
 
-    # Creating a generator of lines in the source text
-    source_text_lines_generator = (''.join(findall(r'[\w\s.?!,;:]', ''.join(findall(r'\D', line))))
-                                   for source_filename in os.listdir(source_dir)
-                                   for line in open(os.path.join(source_dir, source_filename), encoding='utf-8'))
+    # Creating a generator of lines in the source texts
+    source_texts_line_generators = [(''.join(findall(r'[\w\s.?!,;:]', ''.join(findall(r'\D', line))))
+                                     for line in open(os.path.join(source_dir, source_filename), encoding='utf-8'))
+                                    for source_filename in os.listdir(source_dir)]
 
     # Detecting the language of the source text
     MAX_CHARS_TO_DETECT = 10000
@@ -122,38 +170,46 @@ if __name__ == "__main__":
     text_to_detect_language = ''.join(chars_to_detect_language)
     language = pycld2.detect(text_to_detect_language)[2][0][0].lower()
 
-    # Removing all non-alphabetic elements that are not punctuation marks from the text
-
     # The set of all the words in the text
     # (including start- and end-of-sentence marks and without non-alphabetic elements that are not punctuation marks)
     source_words = list(set([word for sentence in
-                        [["начало предложения"] + [word for word in word_tokenize(sentence, language)] +
-                         ["конец предложения"]
-                         for sentence in sent_tokenize(' '.join(''.join(findall(r'[\w\s.?!,;:]',
-                                                                                ''.join(findall(r'\D', line))))
-                                                                for source_filename in os.listdir(source_dir)
-                                                                for line in open(os.path.join(source_dir,
-                                                                                              source_filename),
-                                                                                 encoding='utf-8')), language)]
-                        for word in sentence]))
+                             [["начало предложения"] + [word for word in word_tokenize(sentence, language)] +
+                              ["конец предложения"]
+                              for sentence in sent_tokenize(' '.join(''.join(findall(r'[\w\s.?!,;:]',
+                                                                                     ''.join(findall(r'\D', line))))
+                                                                     for source_filename in os.listdir(source_dir)
+                                                                     for line in open(os.path.join(source_dir,
+                                                                                                   source_filename),
+                                                                                      encoding='utf-8')), language)]
+                             for word in sentence]))
 
     # The first Markov model
-    markov_model_1 = markov_model(source_text_lines_generator)
+    markov_models_list = [markov_model(generator) for generator in source_texts_line_generators]
 
     # The second Markov model
-    normalized_words_generator = (' '.join([' '.join(sentence) for sentence in
-                                            normalize(''.join(findall(r'[\w\s.?!,;:]', ''.join(findall(r'\D', line)))),
-                                                      language=language)])
-                                  for source_filename in os.listdir(source_dir)
-                                  for line in open(os.path.join(source_dir, source_filename), encoding='utf-8'))
+    normalized_source_texts_line_generators = (' '.join([' '.join(sentence) for sentence in
+                                                         normalize(''.join(findall(r'[\w\s.?!,;:]',
+                                                                                   ''.join(findall(r'\D', line)))),
+                                                                   language=language)])
+                                               for source_filename in os.listdir(source_dir)
+                                               for line in open(os.path.join(source_dir, source_filename),
+                                                                encoding='utf-8'))
 
-    markov_model_2 = markov_model(normalized_words_generator, zero_counts=True)
+    normalized_markov_models_list = [markov_model(generator, zero_counts=True)
+                                     for generator in normalized_source_texts_line_generators]
 
     # The probabilities for the first Markov model
-    probabilities_1 = count_probabilities(markov_model_1)
+    probabilities_list = [count_probabilities(model) for model in markov_models_list]
+
+    # Making 1 probabilities dict from all the probabilities dicts
+    probabilities = join_probabilities(probabilities_list, markov_models_importance)
 
     # The probabilities for the second Markov model
-    probabilities_2 = count_probabilities(markov_model_2, laplace_smoothing=True)
+    normalized_probabilities_list = [count_probabilities(model, laplace_smoothing=True)
+                                     for model in normalized_markov_models_list]
+
+    # Making 1 probabilities dict from all the probabilities dicts
+    normalized_probabilities = join_probabilities(normalized_probabilities_list, markov_models_importance)
 
     # Reading the text from the destination file
     with open(dest_filename, encoding='utf-8') as dest:
@@ -198,11 +254,12 @@ if __name__ == "__main__":
         # Generating the first M words
         j = 0
         while j < M:
-            if tuple(normalized_generated_words[-M::]) in probabilities_2.keys():
-                generated_words.append(random.choice(list(probabilities_2[tuple(normalized_generated_words[-M::])]
-                                                          .keys()), p=list(probabilities_2[
-                                                                               tuple(normalized_generated_words[
-                                                                                     -M::])].values())))
+            if tuple(normalized_generated_words[-M::]) in normalized_probabilities.keys():
+                generated_words.append(
+                    random.choice(list(normalized_probabilities[tuple(normalized_generated_words[-M::])]
+                                       .keys()), p=list(normalized_probabilities[
+                                                            tuple(normalized_generated_words[
+                                                                  -M::])].values())))
             else:
                 generated_words.append(random.choice(source_words))
             if generated_words[-1] != "начало предложения" and \
@@ -218,17 +275,17 @@ if __name__ == "__main__":
     # Generating the remaining words
     while i < N - M:
         if len(generated_words) < M:
-            if tuple(generated_words[-len(generated_words)::]) in probabilities_1.keys():
-                generated_words.append(random.choice(list(probabilities_1[tuple(generated_words[
-                                                                                -len(generated_words)::])].keys()),
-                                                     p=list(probabilities_1[tuple(generated_words[
-                                                                                  -len(generated_words)::])].values())))
+            if tuple(generated_words[-len(generated_words)::]) in probabilities.keys():
+                generated_words.append(random.choice(list(probabilities[tuple(generated_words[
+                                                                              -len(generated_words)::])].keys()),
+                                                     p=list(probabilities[tuple(generated_words[
+                                                                                -len(generated_words)::])].values())))
             else:
                 generated_words.append(random.choice(source_words))
         else:
-            if tuple(generated_words[-M::]) in probabilities_1.keys():
-                generated_words.append(random.choice(list(probabilities_1[tuple(generated_words[-M::])].keys()),
-                                                     p=list(probabilities_1[tuple(generated_words[-M::])].values())))
+            if tuple(generated_words[-M::]) in probabilities.keys():
+                generated_words.append(random.choice(list(probabilities[tuple(generated_words[-M::])].keys()),
+                                                     p=list(probabilities[tuple(generated_words[-M::])].values())))
             else:
                 generated_words.append(random.choice(source_words))
         if generated_words[-1] != "начало предложения" and generated_words[-1] != "конец предложения":
