@@ -141,7 +141,7 @@ if __name__ == "__main__":
     parser.add_argument('dest_filename', type=str)
     parser.add_argument('M', type=int, help="Order of the Markov model")
     parser.add_argument('N', type=int, help="Number of words to generate")
-    parser.add_argument('markov_models_importance', type=int, nargs='+',
+    parser.add_argument('markov_models_importance', type=float, nargs='+',
                         help="Importance of each source file's Markov model")
     args = parser.parse_args()
 
@@ -152,9 +152,9 @@ if __name__ == "__main__":
     markov_models_importance = [int(importance) for importance in args.markov_models_importance]
 
     # Creating a generator of lines in the source texts
-    source_texts_line_generators = [(''.join(findall(r'[\w\s.?!,;:]', ''.join(findall(r'\D', line))))
+    source_texts_line_generators = ((''.join(findall(r'[\w\s.?!,;:]', ''.join(findall(r'\D', line))))
                                      for line in open(os.path.join(source_dir, source_filename), encoding='utf-8'))
-                                    for source_filename in os.listdir(source_dir)]
+                                    for source_filename in os.listdir(source_dir))
 
     # Detecting the language of the source text
     MAX_CHARS_TO_DETECT = 10000
@@ -187,13 +187,13 @@ if __name__ == "__main__":
     markov_models_list = [markov_model(generator) for generator in source_texts_line_generators]
 
     # The second Markov model
-    normalized_source_texts_line_generators = (' '.join([' '.join(sentence) for sentence in
+    normalized_source_texts_line_generators = ((' '.join([' '.join(sentence) for sentence in
                                                          normalize(''.join(findall(r'[\w\s.?!,;:]',
                                                                                    ''.join(findall(r'\D', line)))),
                                                                    language=language)])
-                                               for source_filename in os.listdir(source_dir)
                                                for line in open(os.path.join(source_dir, source_filename),
                                                                 encoding='utf-8'))
+                                               for source_filename in os.listdir(source_dir))
 
     normalized_markov_models_list = [markov_model(generator, zero_counts=True)
                                      for generator in normalized_source_texts_line_generators]
