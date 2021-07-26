@@ -4,6 +4,10 @@ from pymorphy2 import MorphAnalyzer
 from re import findall
 from sys import argv
 
+# A PorterStemmer object to stem the text in English and a MorphAnalyzer object to lemmatize the text in Russian
+stemmer = nltk.stem.PorterStemmer()
+morph = MorphAnalyzer()
+
 
 def normalize(text, language):
     """Normalizes a text.
@@ -31,12 +35,12 @@ def normalize(text, language):
 
     # Stemming the text in English
     if language == 'english':
-        stemmer = nltk.stem.PorterStemmer()
+        global stemmer
         words = [[stemmer.stem(word) for word in sentence] for sentence in words]
 
     # Lemmatizing the text in Russian
     if language == 'russian':
-        morph = MorphAnalyzer()
+        global morph
         words = [[morph.parse(word)[0].normal_form for word in sentence] for sentence in words]
 
     return words
