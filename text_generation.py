@@ -7,15 +7,12 @@ from re import findall
 from text_normalization import normalize
 
 
-def markov_model(lambda_generator, zero_counts=False):
+def markov_model(lambda_generator):
     """Creates a Markov model.
 
     Args:
         lambda_generator: A lambda that returns a generator of lines in the text
             that the Markov model is based on.
-        zero_counts: Optional; If zero_counts is True the Markov model will include the word
-            combinations that are not in the text the Markov model is based on. Their counts
-            will be 0.
 
     Returns:
         A dict that represents the generated Markov model with keys as windows (tuples of strings)
@@ -23,34 +20,11 @@ def markov_model(lambda_generator, zero_counts=False):
         of times when the key word is after the window (integers).
     """
     model = {}
-    # If zero_counts, adding all the possible windows from the text to the model, adding
-    # all the words from the text to each of the Markov model's windows as possible continuations
-    # of them and setting the number of these continuations to 0
-    if zero_counts:
-        # Finding all the possible windows and words
-        windows = []
-        last_words = []
-        for line in lambda_generator():
-            words_in_line = [word for sentence in
-                             [["начало предложения"] + [word for word in word_tokenize(sentence, language=language)] +
-                              ["конец предложения"] for sentence in sent_tokenize(line, language=language)]
-                             for word in sentence]
-            windows.extend([tuple(words_in_line[i:i + M:]) for i in range(len(words_in_line) - M + 1)])
-            last_words.extend(words_in_line)
-        windows = list(set(windows))
-        last_words = list(set(last_words))
-
-        for window in windows:
-            for last_word in last_words:
-                if window in model.keys():
-                    model[window][last_word] = 0
-                else:
-                    model[window] = {last_word: 0}
 
     # Counting the number of each of the words after each of the windows
     for line in lambda_generator():
         words_in_line = [word for sentence in
-                         [["начало предложения"] + [word for word in word_tokenize(sentence, language=language)] +
+                         [["начало предложения"] * M + [word for word in word_tokenize(sentence, language=language)] +
                           ["конец предложения"] for sentence in sent_tokenize(line, language=language)]
                          for word in sentence]
         for window_and_last_word in [words_in_line[i:i + M + 1] for i in range(len(words_in_line) - M)]:
@@ -67,15 +41,13 @@ def markov_model(lambda_generator, zero_counts=False):
     return model
 
 
-def count_probabilities(model, laplace_smoothing=False):
+def count_probabilities(model):
     """Counts probabilities for a Markov model.
 
     Args:
         model: A Markov model as a dict with keys as windows (tuples of strings) and values
             as dicts with keys as words after the window (strings) and values as the number
             of times when the key word is after the window (integers).
-        laplace_smoothing: Optional; If laplace_smoothing is True the function will use
-            Laplace smoothing to count the probabilities.
 
     Returns:
         A dict that represents probabilities for the Markov model with keys as windows
@@ -87,19 +59,8 @@ def count_probabilities(model, laplace_smoothing=False):
     for window in model.keys():
         probs[window] = {}
         for last_word in model[window].keys():
-            if laplace_smoothing:
-                # Laplace smoothing
-                probability = (model[window][last_word] + 1) / \
-                              (sum(model[window].values()) + len(
-                                  model[window]))
-            else:
-                probability = model[window][last_word] / sum(model[window].values())
+            probability = model[window][last_word] / sum(model[window].values())
             probs[window][last_word] = probability
-        if laplace_smoothing:
-            # Renormalization
-            prob_sum = sum(probs[window].values())
-            for word in probs[window].keys():
-                probs[window][word] /= prob_sum
     return probs
 
 
@@ -169,8 +130,7 @@ if __name__ == "__main__":
                                                     for line in open(os.path.join(source_dir, source_filename),
                                                                      encoding='utf-8'))
                                            for source_file_index, source_filename
-                                           in enumerate(sorted(os.listdir(source_dir)))
-                                           if markov_models_importance[source_file_index] != 0)
+                                           in enumerate(sorted(os.listdir(source_dir))))
 
     # Detecting the language of the source text
     MAX_CHARS_TO_DETECT, chars_to_detect_language = 10000, []
@@ -188,7 +148,7 @@ if __name__ == "__main__":
     # The set of all the words in the texts
     # (including start- and end-of-sentence marks and without non-alphabetic elements that are not punctuation marks)
     source_words = ['\n'.join(list(set([word for sentence in
-                                        [["начало предложения"] + [word for word in word_tokenize(sentence, language)] +
+                                        [["начало предложения"] * M + [word for word in word_tokenize(sentence, language)] +
                                          ["конец предложения"]
                                          for sentence in sent_tokenize(' '.join(''.join(findall(r'[\w\s.?!,;:]',
                                                                                                 ''.join(findall(r'\D',
@@ -198,8 +158,7 @@ if __name__ == "__main__":
                                                                                                   source_filename),
                                                                                      encoding='utf-8')), language)]
                                         for word in sentence])))
-                    for source_file_index, source_filename in enumerate(os.listdir(source_dir))
-                    if markov_models_importance[source_file_index] != 0]
+                    for source_file_index, source_filename in enumerate(os.listdir(source_dir))]
 
     # The first Markov model
     markov_models_generator = (markov_model(lambda_generator) for lambda_generator in
@@ -216,10 +175,9 @@ if __name__ == "__main__":
                                                                open(os.path.join(source_dir, source_filename),
                                                                     encoding='utf-8'))
                                                       for source_file_index, source_filename
-                                                      in enumerate(sorted(os.listdir(source_dir)))
-                                                      if markov_models_importance[source_file_index] != 0)
+                                                      in enumerate(sorted(os.listdir(source_dir))))
 
-    normalized_markov_models_generator = (markov_model(lambda_generator, zero_counts=True)
+    normalized_markov_models_generator = (markov_model(lambda_generator)
                                           for lambda_generator in lambda_normalized_source_texts_line_generators)
 
     # The probabilities for the first Markov model
@@ -229,7 +187,7 @@ if __name__ == "__main__":
     probabilities = join_probabilities(probabilities_generator, markov_models_importance)
 
     # The probabilities for the second Markov model
-    normalized_probabilities_generator = (count_probabilities(model, laplace_smoothing=True)
+    normalized_probabilities_generator = (count_probabilities(model)
                                           for model in normalized_markov_models_generator)
 
     # Making 1 probabilities dict from all the probabilities dicts
@@ -261,18 +219,18 @@ if __name__ == "__main__":
         dest_words = word_tokenize(dest_text, language=language)[::-1][:M:]
 
     dest_words = [word for sentence in
-                  [["начало предложения"] + [word for word in word_tokenize(sentence, language)] +
+                  [["начало предложения"] * M + [word for word in word_tokenize(sentence, language)] +
                    ["конец предложения"] for sentence in sent_tokenize(' '.join(dest_words), language)]
                   for word in sentence][-M::]
     dest_text = ' '.join(word for word in dest_words if word != "начало предложения" and word != "конец предложения")
     normalized_dest_words = [word for sentence in
-                             [["начало предложения"] + [word for word in sentence] +
+                             [["начало предложения"] * M + [word for word in sentence] +
                               ["конец предложения"] for sentence in normalize(dest_text, language)]
                              for word in sentence]
 
     # Checking if the destination file is empty
     if not dest_words:
-        generated_words = ["начало предложения"]
+        generated_words = ["начало предложения"] * M
         i = -M
     else:
         generated_words, normalized_generated_words = dest_words.copy(), normalized_dest_words.copy()
@@ -316,6 +274,8 @@ if __name__ == "__main__":
                     and sum(probabilities[tuple(generated_words[-M::])].values()):
                 generated_words.append(random.choice(list(probabilities[tuple(generated_words[-M::])].keys()),
                                                      p=list(probabilities[tuple(generated_words[-M::])].values())))
+                if generated_words[-1] == "конец предложения":
+                    generated_words.extend(["начало предложения"] * M)
             else:
                 generated_words.append(random.choice(random.choice(source_words,
                                                                    p=markov_models_importance).split('\n')))
